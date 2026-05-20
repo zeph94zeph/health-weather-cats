@@ -1,4 +1,4 @@
-name: 毎朝の猫健康チェック通知
+name: cats-daily-notify
 
 on:
   schedule:
