@@ -43,24 +43,26 @@ FOOD_OPTIONS = [
 ]
 
 
-def build_food_message(cat: dict, date_str: str) -> dict:
-    """1匹分の食事チェック Quick Reply メッセージを組み立てる"""
+def build_combined_food_message(date_str: str) -> dict:
+    """りんこ・そうた両方の食事ボタンを1メッセージにまとめる
+    （Quick Reply は最後のメッセージにしか表示されないため）"""
     quick_reply_items = []
-    for opt in FOOD_OPTIONS:
-        postback_data = f"action=food&cat={cat['id']}&value={opt['value']}&date={date_str}"
-        quick_reply_items.append({
-            "type": "action",
-            "action": {
-                "type": "postback",
-                "label": opt["label"],
-                "data": postback_data,
-                "displayText": f"{cat['name']}：{opt['value']}",
-            }
-        })
+    for cat in CATS:
+        for opt in FOOD_OPTIONS:
+            postback_data = f"action=food&cat={cat['id']}&value={opt['value']}&date={date_str}"
+            quick_reply_items.append({
+                "type": "action",
+                "action": {
+                    "type": "postback",
+                    "label": f"{cat['icon']}{cat['name']} {opt['value']}",
+                    "data": postback_data,
+                    "displayText": f"{cat['name']}：{opt['value']}",
+                }
+            })
 
     return {
         "type": "text",
-        "text": f"{cat['icon']} 【{cat['name']}】今朝のご飯は？",
+        "text": "🍽️ 今朝のご飯は？",
         "quickReply": {
             "items": quick_reply_items
         }
@@ -141,11 +143,10 @@ def main():
     yesterday_str = (now_jst - timedelta(days=1)).strftime("%Y-%m-%d")
     summary = today_summary(df, yesterday_str)
 
-    # メッセージ組み立て（最大5件まで一括送信可能）
+    # メッセージ組み立て（Quick Reply は最後のメッセージにしか出ないため1つにまとめる）
     messages = [
         build_header_message(now_jst, summary),
-        build_food_message(CATS[0], today_str),   # りんこ
-        build_food_message(CATS[1], today_str),   # そうた
+        build_combined_food_message(today_str),   # りんこ・そうた両方のボタン
     ]
 
     send_messages(messages, dry_run=args.dry_run)
