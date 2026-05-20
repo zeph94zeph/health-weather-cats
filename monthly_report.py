@@ -53,15 +53,9 @@ def analyze_month(df, year: int, month: int) -> dict:
     start = datetime(year, month, 1)
     end   = datetime(year, month, last_day)
 
-    # 今月途中の場合は今日までの日数を分母にする
-    today = datetime.now(JST).replace(tzinfo=None)
-    if year == today.year and month == today.month:
-        total_days = today.day
-    else:
-        total_days = last_day
-
     mask = (df["日付"] >= start) & (df["日付"] <= end)
     mdf  = df[mask].copy()
+    total_days = last_day
 
     results = {}
     for cat in CATS:
@@ -140,7 +134,7 @@ def format_cat_block(data: dict) -> tuple[str, list[str]]:
             food_parts.append(f"半分 {han}日")
         if tabe:
             food_parts.append(f"食べず {tabe}日")
-        lines.append(f"  🍽 食事（{rec}/{total}日記録）: {' / '.join(food_parts)}")
+        lines.append(f"  🍽 食事: {' / '.join(food_parts)}（{rec}日記録）")
     else:
         lines.append("  🍽 食事記録なし")
 
