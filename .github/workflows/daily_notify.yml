@@ -49,7 +49,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet "猫の健康記録.csv" 2>/dev/null; then
+          if [ -z "$(git status --porcelain '猫の健康記録.csv')" ]; then
             echo "変更なし — コミットスキップ"
           else
             TODAY=$(TZ=Asia/Tokyo date +"%Y-%m-%d")
