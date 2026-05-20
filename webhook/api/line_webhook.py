@@ -173,12 +173,13 @@ def reply_food_buttons(reply_token: str, done_name: str, done_value: str,
     ]
     if not reply_token or not CHANNEL_TOKEN:
         return
-    requests.post(
+    resp = requests.post(
         REPLY_URL,
         headers={"Authorization": f"Bearer {CHANNEL_TOKEN}", "Content-Type": "application/json"},
         json={"replyToken": reply_token, "messages": messages},
         timeout=10,
     )
+    print(f"[reply_food_buttons] status={resp.status_code} body={resp.text[:200]}", flush=True)
 
 
 def reply_with_symptom_buttons(reply_token: str, cat_id: str, cat_name: str, date_str: str):
