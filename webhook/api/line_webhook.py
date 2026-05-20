@@ -275,6 +275,7 @@ class handler(BaseHTTPRequestHandler):
         for event in events:
             # グループIDが設定されていれば対象グループのみ処理
             source = event.get("source", {})
+            print(f"[SOURCE] groupId={source.get('groupId')} userId={source.get('userId')}", flush=True)
             if GROUP_ID and source.get("groupId") and source.get("groupId") != GROUP_ID:
                 continue
 
