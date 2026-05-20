@@ -53,9 +53,15 @@ def analyze_month(df, year: int, month: int) -> dict:
     start = datetime(year, month, 1)
     end   = datetime(year, month, last_day)
 
+    # 今月途中の場合は今日までの日数を分母にする
+    today = datetime.now(JST).replace(tzinfo=None)
+    if year == today.year and month == today.month:
+        total_days = today.day
+    else:
+        total_days = last_day
+
     mask = (df["日付"] >= start) & (df["日付"] <= end)
     mdf  = df[mask].copy()
-    total_days = last_day
 
     results = {}
     for cat in CATS:
