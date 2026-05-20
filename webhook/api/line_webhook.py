@@ -52,7 +52,14 @@ CSV_COLS = [
     "メモ",
 ]
 
-CAT_NAMES = {"rinko": "りんこ", "souta": "そうた"}
+CAT_NAMES  = {"rinko": "りんこ", "souta": "そうた"}
+CATS_ORDER = ["rinko", "souta"]   # りんこ → そうた の順
+
+FOOD_OPTIONS = [
+    {"label": "完食 😋",      "value": "完食"},
+    {"label": "半分残した 🍽️", "value": "半分"},
+    {"label": "食べず 😿",    "value": "食べず"},
+]
 
 # 体重パターン: 「りんこ 3.8kg」「そうた 4.2」
 WEIGHT_RE = re.compile(
@@ -140,6 +147,40 @@ def reply(reply_token: str, text: str):
     )
 
 
+def reply_food_buttons(reply_token: str, done_name: str, done_value: str,
+                       next_cat_id: str, next_cat_name: str, date_str: str):
+    """次の猫の食事ボタンを返す（完了確認付き）"""
+    items = [
+        {
+            "type": "action",
+            "action": {
+                "type": "postback",
+                "label": opt["label"],
+                "data": f"action=food&cat={next_cat_id}&value={opt['value']}&date={date_str}",
+                "displayText": f"{next_cat_name}：{opt['value']}",
+            },
+        }
+        for opt in FOOD_OPTIONS
+    ]
+    icon = "🐈" if next_cat_id == "souta" else "🐈‍⬛"
+    messages = [
+        {"type": "text", "text": f"✅ {done_name}：{done_value} を記録しました！"},
+        {
+            "type": "text",
+            "text": f"{icon} 【{next_cat_name}】今朝のご飯は？",
+            "quickReply": {"items": items},
+        },
+    ]
+    if not reply_token or not CHANNEL_TOKEN:
+        return
+    requests.post(
+        REPLY_URL,
+        headers={"Authorization": f"Bearer {CHANNEL_TOKEN}", "Content-Type": "application/json"},
+        json={"replyToken": reply_token, "messages": messages},
+        timeout=10,
+    )
+
+
 def reply_with_symptom_buttons(reply_token: str, cat_id: str, cat_name: str, date_str: str):
     """症状 Quick Reply ボタンを返す"""
     symptoms = ["嘔吐・ゲロ", "下痢", "血尿", "食欲不振", "元気ない", "異常なし"]
@@ -192,7 +233,20 @@ def handle_postback(event):
         if col in fields:
             row[col] = value
         write_csv_to_github(rows, fields, sha, f"🐱 {date_str} {cat_name} 食事={value}")
-        reply_with_symptom_buttons(reply_token, cat_id, cat_name, date_str)
+
+        # 2段階方式: もう片方の猫がまだ未記録なら、その猫の食事ボタンを返す
+        other_id   = [c for c in CATS_ORDER if c != cat_id]
+        if other_id:
+            other_id   = other_id[0]
+            other_name = CAT_NAMES[other_id]
+            other_col  = f"{other_name}食事"
+            other_done = row.get(other_col, "").strip()
+            if not other_done:
+                reply_food_buttons(reply_token, cat_name, value, other_id, other_name, date_str)
+            else:
+                reply_with_symptom_buttons(reply_token, cat_id, cat_name, date_str)
+        else:
+            reply_with_symptom_buttons(reply_token, cat_id, cat_name, date_str)
 
     elif action == "symptom":
         col = f"{cat_name}症状"
