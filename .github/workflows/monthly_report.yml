@@ -1,0 +1,52 @@
+name: cats-monthly-report
+
+on:
+  schedule:
+    # 毎月1日 20:00 UTC = 毎月2日 5:00 JST
+    - cron: "0 20 1 * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "LINE 送信せずメッセージ内容だけ表示する"
+        type: boolean
+        required: false
+        default: false
+      month:
+        description: "集計対象月 (例: 2026-05)。省略時は先月"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  monthly-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Send monthly report
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_GROUP_ID:             ${{ secrets.LINE_GROUP_ID }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          if [ -n "${{ github.event.inputs.month }}" ]; then
+            ARGS="$ARGS --month ${{ github.event.inputs.month }}"
+          fi
+          python monthly_report.py $ARGS
