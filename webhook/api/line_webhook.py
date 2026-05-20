@@ -182,8 +182,9 @@ def reply_food_buttons(reply_token: str, done_name: str, done_value: str,
     print(f"[reply_food_buttons] status={resp.status_code} body={resp.text[:200]}", flush=True)
 
 
-def reply_with_symptom_buttons(reply_token: str, cat_id: str, cat_name: str, date_str: str):
-    """症状 Quick Reply ボタンを返す"""
+def reply_with_symptom_buttons(reply_token: str, cat_id: str, cat_name: str, date_str: str,
+                               confirm_text: str = ""):
+    """症状 Quick Reply ボタンを返す（confirm_text があれば確認メッセージも一緒に送る）"""
     symptoms = ["嘔吐・ゲロ", "下痢", "血尿", "食欲不振", "元気ない", "異常なし"]
     items = [
         {
@@ -197,17 +198,22 @@ def reply_with_symptom_buttons(reply_token: str, cat_id: str, cat_name: str, dat
         }
         for s in symptoms
     ]
-    msg = {
+    symptom_msg = {
         "type": "text",
         "text": f"🩺 {cat_name} の症状は？",
         "quickReply": {"items": items},
     }
+    messages = []
+    if confirm_text:
+        messages.append({"type": "text", "text": confirm_text})
+    messages.append(symptom_msg)
+
     if not reply_token or not CHANNEL_TOKEN:
         return
     requests.post(
         REPLY_URL,
         headers={"Authorization": f"Bearer {CHANNEL_TOKEN}", "Content-Type": "application/json"},
-        json={"replyToken": reply_token, "messages": [msg]},
+        json={"replyToken": reply_token, "messages": messages},
         timeout=10,
     )
 
@@ -245,7 +251,16 @@ def handle_postback(event):
             if not other_done:
                 reply_food_buttons(reply_token, cat_name, value, other_id, other_name, date_str)
             else:
-                reply_with_symptom_buttons(reply_token, cat_id, cat_name, date_str)
+                # 両方の食事記録済み → CATS_ORDER の先頭（りんこ）の症状を先に聞く
+                first_id   = CATS_ORDER[0]
+                first_name = CAT_NAMES[first_id]
+                first_sym  = row.get(f"{first_name}症状", "").strip()
+                if not first_sym:
+                    reply_with_symptom_buttons(reply_token, first_id, first_name, date_str)
+                else:
+                    second_id   = CATS_ORDER[1]
+                    second_name = CAT_NAMES[second_id]
+                    reply_with_symptom_buttons(reply_token, second_id, second_name, date_str)
         else:
             reply_with_symptom_buttons(reply_token, cat_id, cat_name, date_str)
 
@@ -255,12 +270,27 @@ def handle_postback(event):
             if value == "異常なし":
                 row[col] = ""
                 write_csv_to_github(rows, fields, sha, f"🐱 {date_str} {cat_name} 症状=異常なし")
-                reply(reply_token, f"✅ {cat_name}：異常なし で記録しました！")
             else:
                 existing = row.get(col, "").strip()
                 row[col] = f"{existing},{value}".lstrip(",") if existing else value
                 write_csv_to_github(rows, fields, sha, f"🐱 {date_str} {cat_name} 症状={value}")
-                reply(reply_token, f"📝 {cat_name}：{value} を記録しました。")
+
+            confirm = (f"✅ {cat_name}：異常なし で記録しました！"
+                       if value == "異常なし" else f"📝 {cat_name}：{value} を記録しました。")
+
+            # 症状記録後、もう一方の猫の食事が済んでいて症状未記録なら続けて聞く
+            others = [c for c in CATS_ORDER if c != cat_id]
+            if others:
+                other_sym_id   = others[0]
+                other_sym_name = CAT_NAMES[other_sym_id]
+                other_food_done = row.get(f"{other_sym_name}食事", "").strip()
+                other_sym_done  = row.get(f"{other_sym_name}症状", "").strip()
+                if other_food_done and not other_sym_done:
+                    reply_with_symptom_buttons(reply_token, other_sym_id, other_sym_name,
+                                               date_str, confirm_text=confirm)
+                    return
+
+            reply(reply_token, confirm)
 
 
 def handle_text(event):
