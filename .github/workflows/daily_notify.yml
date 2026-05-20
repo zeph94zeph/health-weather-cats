@@ -1,0 +1,60 @@
+name: 毎朝の猫健康チェック通知
+
+on:
+  schedule:
+    # 毎朝 22:00 UTC = 翌朝 7:00 JST
+    - cron: "0 22 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "LINE 送信せずメッセージ内容だけ表示する"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Send LINE notification
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_GROUP_ID:             ${{ secrets.LINE_GROUP_ID }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            python notify.py --dry-run
+          else
+            python notify.py
+          fi
+
+      - name: Commit updated CSV (if changed)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet "猫の健康記録.csv" 2>/dev/null; then
+            echo "変更なし — コミットスキップ"
+          else
+            TODAY=$(TZ=Asia/Tokyo date +"%Y-%m-%d")
+            git add "猫の健康記録.csv"
+            git commit -m "🐱 猫健康記録自動更新: ${TODAY}"
+            git push
+            echo "✅ コミット完了"
+          fi
