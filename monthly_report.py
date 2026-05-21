@@ -79,7 +79,7 @@ def analyze_month(df, year: int, month: int) -> dict:
         # カンマ区切り展開
         all_symptoms = []
         for v in sym_vals:
-            all_symptoms.extend([s.strip() for s in v.split(",") if s.strip()])
+            all_symptoms.extend([s.strip() for s in v.split(",") if s.strip() and s.strip() != "異常なし"])
         sym_counter = Counter(all_symptoms)
 
         # ── 体重 ──

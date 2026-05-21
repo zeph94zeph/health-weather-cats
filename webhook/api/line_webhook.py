@@ -267,13 +267,13 @@ def handle_postback(event):
     elif action == "symptom":
         col = f"{cat_name}症状"
         if col in fields:
+            # 「異常なし」も文字列として保存する（空文字にすると未記録と区別できずループする）
+            existing = row.get(col, "").strip()
             if value == "異常なし":
-                row[col] = ""
-                write_csv_to_github(rows, fields, sha, f"🐱 {date_str} {cat_name} 症状=異常なし")
+                row[col] = "異常なし"
             else:
-                existing = row.get(col, "").strip()
                 row[col] = f"{existing},{value}".lstrip(",") if existing else value
-                write_csv_to_github(rows, fields, sha, f"🐱 {date_str} {cat_name} 症状={value}")
+            write_csv_to_github(rows, fields, sha, f"🐱 {date_str} {cat_name} 症状={value}")
 
             confirm = (f"✅ {cat_name}：異常なし で記録しました！"
                        if value == "異常なし" else f"📝 {cat_name}：{value} を記録しました。")
