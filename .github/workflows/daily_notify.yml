@@ -2,8 +2,8 @@ name: cats-daily-notify
 
 on:
   schedule:
-    # 毎朝 20:00 UTC = 翌朝 5:00 JST
-    - cron: "0 20 * * *"
+    # 毎日 08:00 UTC = 17:00 JST
+    - cron: "0 8 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
