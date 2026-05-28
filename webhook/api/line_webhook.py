@@ -185,7 +185,7 @@ def reply_food_buttons(reply_token: str, done_name: str, done_value: str,
 def reply_with_symptom_buttons(reply_token: str, cat_id: str, cat_name: str, date_str: str,
                                confirm_text: str = ""):
     """症状 Quick Reply ボタンを返す（confirm_text があれば確認メッセージも一緒に送る）"""
-    symptoms = ["嘔吐・ゲロ", "下痢", "血尿", "食欲不振", "元気ない", "異常なし"]
+    symptoms = ["嘔吐・ゲロ", "吐き戻し", "下痢", "血尿", "食欲不振", "元気ない", "異常なし"]
     items = [
         {
             "type": "action",
