@@ -67,7 +67,7 @@ WEIGHT_RE = re.compile(
     re.IGNORECASE,
 )
 TEXT_TO_CAT = {"りんこ": "rinko", "りん": "rinko", "そうた": "souta", "そう": "souta"}
-SYMPTOM_KW  = ["嘔吐", "ゲロ", "下痢", "血尿", "食欲不振", "元気ない", "咳", "くしゃみ"]
+SYMPTOM_KW  = ["嘔吐・ゲロ", "嘔吐", "吐き戻し", "ゲロ", "下痢", "血尿", "食欲不振", "元気ない", "咳", "くしゃみ"]
 
 
 # ── 署名検証 ─────────────────────────────────────────────
@@ -314,20 +314,39 @@ def handle_text(event):
             responses.append(f"⚖️ {cat_name}：{weight}kg を記録しました！")
             changed = True
 
-    # 症状キーワード（自由テキスト）
+    # 猫名を検出して症状またはメモに記録（長いキーを優先）
     if not responses:
-        for kw in SYMPTOM_KW:
-            if kw in text:
-                for name_key, cid in TEXT_TO_CAT.items():
-                    if name_key in text:
-                        cat_name = CAT_NAMES.get(cid, name_key)
-                        col      = f"{cat_name}症状"
-                        if col in fields:
-                            existing = row.get(col, "").strip()
-                            row[col] = f"{existing},{kw}".lstrip(",") if existing else kw
-                            responses.append(f"📝 {cat_name}：{kw} を記録しました。")
-                            changed = True
-                        break
+        for name_key in sorted(TEXT_TO_CAT.keys(), key=len, reverse=True):
+            if name_key in text:
+                cid      = TEXT_TO_CAT[name_key]
+                cat_name = CAT_NAMES[cid]
+                # 猫名より後ろを内容として取得
+                idx     = text.index(name_key)
+                content = text[idx + len(name_key):].strip("　 ・、。")
+                if not content:
+                    break
+
+                # 症状キーワードに一致するか確認（長いキーを優先）
+                matched_kw = next(
+                    (kw for kw in sorted(SYMPTOM_KW, key=len, reverse=True) if kw in content),
+                    None
+                )
+
+                if matched_kw:
+                    # 症状として記録
+                    col = f"{cat_name}症状"
+                    if col in fields:
+                        existing = row.get(col, "").strip()
+                        row[col] = f"{existing},{matched_kw}".lstrip(",") if existing else matched_kw
+                        responses.append(f"📝 {cat_name}：{matched_kw} を記録しました。")
+                        changed = True
+                else:
+                    # 症状以外 → メモに記録
+                    existing_memo = row.get("メモ", "").strip()
+                    memo_entry    = f"{cat_name}:{content}"
+                    row["メモ"]   = f"{existing_memo} / {memo_entry}" if existing_memo else memo_entry
+                    responses.append(f"📋 {cat_name}：{content} をメモに記録しました。")
+                    changed = True
                 break
 
     if changed:
