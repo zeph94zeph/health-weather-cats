@@ -264,6 +264,32 @@ def handle_postback(event):
         else:
             reply_with_symptom_buttons(reply_token, cat_id, cat_name, date_str)
 
+    elif action == "all_ok":
+        # 既に症状が記録されている場合は上書きしない
+        blocked = []
+        for cid in CATS_ORDER:
+            cname   = CAT_NAMES[cid]
+            sym_col = f"{cname}症状"
+            if sym_col in fields:
+                existing = row.get(sym_col, "").strip()
+                if existing and existing != "異常なし":
+                    blocked.append(f"{cname}（{existing}）")
+        if blocked:
+            names = "、".join(blocked)
+            reply(reply_token, f"⚠️ {names} の症状がすでに記録されています。\nテキストで「りんこ 異常なし」と送ると上書きできます。")
+            return
+        for cid in CATS_ORDER:
+            cname   = CAT_NAMES[cid]
+            sym_col = f"{cname}症状"
+            if sym_col in fields:
+                row[sym_col] = "異常なし"
+        write_csv_to_github(rows, fields, sha, f"🐱 {date_str} 2匹とも異常なし")
+        reply(reply_token, "✅ 今日も2匹とも元気で記録しました！")
+
+    elif action == "symptom_start":
+        # 個別猫の症状ボタンを返す
+        reply_with_symptom_buttons(reply_token, cat_id, cat_name, date_str)
+
     elif action == "symptom":
         col = f"{cat_name}症状"
         if col in fields:

@@ -1,11 +1,11 @@
 """
 notify.py
 =========
-毎朝、LINEグループに猫2匹（りんこ・そうた）の健康チェックメッセージを送信する。
+毎日17時、LINEグループに猫2匹（りんこ・そうた）の健康チェックメッセージを送信する。
 
 送信内容:
-  1通目: りんこの今朝のご飯ボタン（完食 / 半分残した / 食べず）
-  2通目: そうたの今朝のご飯ボタン（完食 / 半分残した / 食べず）
+  1通目: 昨日の記録サマリー + 今日の症状チェックボタン
+         [✅ 今日も2匹とも元気！] [🐈‍⬛ りんこ] [🐈 そうた]
 
 使い方:
     python notify.py              # グループに送信
@@ -36,30 +36,40 @@ CATS = [
     {"id": "souta",  "name": "そうた", "icon": "🐈"},
 ]
 
-FOOD_OPTIONS = [
-    {"label": "完食 😋",      "value": "完食"},
-    {"label": "半分残した 🍽️", "value": "半分"},
-    {"label": "食べず 😿",    "value": "食べず"},
-]
-
-
-def build_food_message(cat: dict, date_str: str) -> dict:
-    """1匹分の食事ボタンを含むメッセージ"""
+def build_symptom_check_message(date_str: str) -> dict:
+    """症状チェックボタン（一括 / りんこ個別 / そうた個別）"""
     items = [
         {
             "type": "action",
             "action": {
                 "type": "postback",
-                "label": opt["label"],
-                "data": f"action=food&cat={cat['id']}&value={opt['value']}&date={date_str}",
-                "displayText": f"{cat['name']}：{opt['value']}",
-            }
-        }
-        for opt in FOOD_OPTIONS
+                "label": "✅ 今日も2匹とも元気！",
+                "data": f"action=all_ok&date={date_str}",
+                "displayText": "2匹とも異常なし",
+            },
+        },
+        {
+            "type": "action",
+            "action": {
+                "type": "postback",
+                "label": "🐈‍⬛ りんこ",
+                "data": f"action=symptom_start&cat=rinko&date={date_str}",
+                "displayText": "りんこの症状を記録",
+            },
+        },
+        {
+            "type": "action",
+            "action": {
+                "type": "postback",
+                "label": "🐈 そうた",
+                "data": f"action=symptom_start&cat=souta&date={date_str}",
+                "displayText": "そうたの症状を記録",
+            },
+        },
     ]
     return {
         "type": "text",
-        "text": f"{cat['icon']} 【{cat['name']}】今朝のご飯は？",
+        "text": "👇 今日の症状チェック",
         "quickReply": {"items": items},
     }
 
@@ -68,7 +78,7 @@ def build_header_message(today: datetime, summary: dict) -> dict:
     """冒頭の挨拶メッセージ（昨日のサマリー付き）"""
     weekday_names = ["月", "火", "水", "木", "金", "土", "日"]
     wd = weekday_names[today.weekday()]
-    date_label = today.strftime(f"%-m/%-d") + f"（{wd}）"
+    date_label = f"{today.month}/{today.day}（{wd}）"
 
     lines = [f"🌅 おはよう！{date_label} の猫チェック"]
 
@@ -78,19 +88,16 @@ def build_header_message(today: datetime, summary: dict) -> dict:
         lines.append("")
         lines.append("📋 昨日の記録：")
         for cat in CATS:
-            cid = cat["id"]
-            food     = summary.get(f"{cid}_food",    "―")
-            symptoms = summary.get(f"{cid}_symptoms", "")
+            cid      = cat["id"]
+            symptoms = summary.get(f"{cid}_symptoms", "異常なし")
             weight   = summary.get(f"{cid}_weight",  "")
-            parts = [f"  {cat['icon']} {cat['name']}：{food}"]
-            if symptoms:
-                parts.append(f"    症状: {symptoms}")
+            parts = [f"  {cat['icon']} {cat['name']}：{symptoms or '異常なし'}"]
             if weight:
                 parts.append(f"    体重: {weight}kg")
             lines.extend(parts)
 
     lines.append("")
-    lines.append("👇 今日の食事を記録してください")
+    lines.append("👇 今日の症状チェック")
 
     return {"type": "text", "text": "\n".join(lines)}
 
@@ -98,11 +105,15 @@ def build_header_message(today: datetime, summary: dict) -> dict:
 def send_messages(messages: list[dict], dry_run: bool = False):
     """LINE グループにメッセージを一括送信（最大5件）"""
     if dry_run:
-        print("── DRY RUN ─────────────────────────")
+        import sys
+        out = sys.stdout.buffer
+        def uprint(s):
+            out.write((s + "\n").encode("utf-8", errors="replace"))
+        uprint("── DRY RUN ─────────────────────────")
         for i, msg in enumerate(messages, 1):
-            print(f"[メッセージ {i}]")
-            print(json.dumps(msg, ensure_ascii=False, indent=2))
-        print("─────────────────────────────────────")
+            uprint(f"[メッセージ {i}]")
+            uprint(json.dumps(msg, ensure_ascii=False, indent=2))
+        uprint("─────────────────────────────────────")
         return
 
     if not CHANNEL_TOKEN:
@@ -138,11 +149,9 @@ def main():
     yesterday_str = (now_jst - timedelta(days=1)).strftime("%Y-%m-%d")
     summary = today_summary(df, yesterday_str)
 
-    # メッセージ組み立て（Quick Reply は最後のメッセージにしか出ない）
-    # りんこを先に送信 → webhook で完食記録後にそうたのボタンを返す（2段階方式）
     messages = [
         build_header_message(now_jst, summary),
-        build_food_message(CATS[0], today_str),   # りんこのボタン3つ
+        build_symptom_check_message(today_str),
     ]
 
     send_messages(messages, dry_run=args.dry_run)
