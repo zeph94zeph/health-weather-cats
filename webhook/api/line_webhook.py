@@ -380,6 +380,23 @@ def reply_menu_buttons(reply_token: str):
 
 
 # ── イベント処理 ───────────────────────────────────────────
+def push_welcome_to_group():
+    """グループチャットにセットアップ案内（初期設定ボタン付き）を Push する"""
+    if not GROUP_ID or not CHANNEL_TOKEN:
+        return
+    items = [{"type": "action", "action": {"type": "message", "label": "⚙️ 初期設定", "text": "初期設定"}}]
+    requests.post(
+        PUSH_URL,
+        headers={"Authorization": f"Bearer {CHANNEL_TOKEN}", "Content-Type": "application/json"},
+        json={"to": GROUP_ID, "messages": [{
+            "type": "text",
+            "text": "🐱 猫健康管理BOTへようこそ！\nまず初期設定をしてください👇",
+            "quickReply": {"items": items},
+        }]},
+        timeout=10,
+    )
+
+
 def handle_follow(event):
     """友達追加時にウェルカムメッセージ + 初期設定ボタンを送信"""
     reply_token = event.get("replyToken", "")
@@ -515,6 +532,12 @@ def handle_text(event):
     reply_token = event.get("replyToken", "")
     text        = event.get("message", {}).get("text", "").strip()
     date_str    = datetime.now(JST).strftime("%Y-%m-%d")
+
+    # 案内送信 → グループにセットアップボタンを Push（既登録ユーザー向け）
+    if text in {"案内送信", "setup送信"}:
+        push_welcome_to_group()
+        reply(reply_token, "✅ グループに案内を送りました！")
+        return
 
     # 初期設定コマンド → User ID を bot_config.json に保存
     if text.lower() in SETUP_KEYWORDS:
