@@ -80,7 +80,7 @@ def build_header_message(today: datetime, summary: dict) -> dict:
     wd = weekday_names[today.weekday()]
     date_label = f"{today.month}/{today.day}（{wd}）"
 
-    lines = [f"🌅 おはよう！{date_label} の猫チェック"]
+    lines = [f"🐱 今日もお疲れ様！{date_label} の猫チェック"]
 
     # 昨日の記録があれば表示
     yesterday = (today - timedelta(days=1)).strftime("%Y-%m-%d")
