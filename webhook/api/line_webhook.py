@@ -43,6 +43,7 @@ GITHUB_REPO    = os.environ.get("GITHUB_REPO", "zeph94zeph/health-weather-cats")
 CSV_FILENAME   = "猫の健康記録.csv"
 
 REPLY_URL = "https://api.line.me/v2/bot/message/reply"
+PUSH_URL  = "https://api.line.me/v2/bot/message/push"
 
 CSV_COLS = [
     "日付",
@@ -54,6 +55,7 @@ CSV_COLS = [
 
 CAT_NAMES  = {"rinko": "りんこ", "souta": "そうた"}
 CATS_ORDER = ["rinko", "souta"]   # りんこ → そうた の順
+WEEKDAYS   = ["月", "火", "水", "木", "金", "土", "日"]
 
 FOOD_OPTIONS = [
     {"label": "完食 😋",      "value": "完食"},
@@ -68,6 +70,74 @@ WEIGHT_RE = re.compile(
 )
 TEXT_TO_CAT = {"りんこ": "rinko", "りん": "rinko", "そうた": "souta", "そう": "souta"}
 SYMPTOM_KW  = ["嘔吐・ゲロ", "嘔吐", "吐き戻し", "ゲロ", "下痢", "血尿", "食欲不振", "元気ない", "咳", "くしゃみ"]
+
+
+# ── 記録フォーマット ──────────────────────────────────────
+def _has_data(row: dict) -> bool:
+    return any(str(row.get(k, "")).strip() for k in row if k != "日付")
+
+
+def format_history(rows: list, current_month: bool = False, all_records: bool = False) -> str:
+    now = datetime.now(JST)
+
+    # 日付バリデーション済みの行だけを対象にする
+    valid = []
+    for r in rows:
+        try:
+            datetime.strptime(r.get("日付", ""), "%Y-%m-%d")
+            valid.append(r)
+        except ValueError:
+            pass
+
+    if current_month:
+        prefix = now.strftime("%Y-%m")
+        target = [r for r in valid if r["日付"].startswith(prefix)]
+        header = f"📋 {now.month}月の記録"
+    else:
+        target = valid
+        header = "📋 全履歴"
+
+    # データのある行だけ、新しい順
+    target = sorted(
+        [r for r in target if _has_data(r)],
+        key=lambda r: r["日付"],
+        reverse=True,
+    )
+    total = len(target)
+
+    if not target:
+        return f"{header}\n\n記録がありません。"
+
+    # 全履歴は最新50件に絞る
+    if all_records and total > 50:
+        target = target[:50]
+        footer = f"\n（最新50件を表示 / 全{total}件）"
+    else:
+        footer = ""
+
+    lines = [header]
+    for row in target:
+        date_str = row["日付"]
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        wd = WEEKDAYS[dt.weekday()]
+        lines.append(f"\n{dt.month}/{dt.day}（{wd}）")
+
+        for cat_name, icon in [("りんこ", "🐈‍⬛"), ("そうた", "🐈")]:
+            sym = str(row.get(f"{cat_name}症状", "") or "").strip() or "記録なし"
+            wt  = str(row.get(f"{cat_name}体重", "") or "").strip()
+            line = f"  {icon} {cat_name}: {sym}"
+            if wt:
+                line += f"  ⚖️{wt}kg"
+            lines.append(line)
+
+        memo = str(row.get("メモ", "") or "").strip()
+        if memo:
+            lines.append(f"  📝 {memo}")
+
+    text = "\n".join(lines) + footer
+    if len(text) > 4900:
+        text = text[:4900] + "\n…(省略)"
+    return text
 
 
 # ── 署名検証 ─────────────────────────────────────────────
@@ -144,6 +214,18 @@ def reply(reply_token: str, text: str):
         headers={"Authorization": f"Bearer {CHANNEL_TOKEN}", "Content-Type": "application/json"},
         json={"replyToken": reply_token, "messages": [{"type": "text", "text": text}]},
         timeout=10,
+    )
+
+
+def push_message(text: str):
+    """replyToken を使わず GROUP_ID に直接 Push 送信する（全履歴など重い処理用）"""
+    if not GROUP_ID or not CHANNEL_TOKEN:
+        return
+    requests.post(
+        PUSH_URL,
+        headers={"Authorization": f"Bearer {CHANNEL_TOKEN}", "Content-Type": "application/json"},
+        json={"to": GROUP_ID, "messages": [{"type": "text", "text": text}]},
+        timeout=15,
     )
 
 
@@ -233,6 +315,19 @@ def handle_postback(event):
     cat_name = CAT_NAMES.get(cat_id, cat_id)
 
     rows, fields, sha = read_csv_from_github()
+
+    # history は行を作成しない（空行汚染防止）
+    if action == "history":
+        is_month = params.get("month") == "1"
+        is_all   = params.get("all")   == "1"
+        text = format_history(rows, current_month=is_month, all_records=is_all)
+        if is_all:
+            push_message(text)
+            reply(reply_token, "📋 全履歴を送信しました！")
+        else:
+            reply(reply_token, text)
+        return
+
     row = get_or_create_row(rows, date_str)
 
     if action == "food":
