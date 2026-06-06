@@ -13,6 +13,7 @@ notify.py
 """
 
 import argparse
+import base64
 import json
 import os
 import sys
@@ -30,6 +31,27 @@ JST          = timezone(timedelta(hours=9))
 CHANNEL_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 GROUP_ID      = os.environ.get("LINE_GROUP_ID", "")
 USER_ID       = os.environ.get("LINE_USER_ID", "")   # 1対1トーク移行後に設定（こちらを優先）
+GITHUB_TOKEN  = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_REPO   = os.environ.get("GITHUB_REPO", "zeph94zeph/health-weather-cats")
+
+
+def _read_user_id_from_github() -> str:
+    """bot_config.json から LINE_USER_ID を読む（env var の fallback）"""
+    if not GITHUB_TOKEN:
+        return ""
+    try:
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/bot_config.json"
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json",
+        }
+        r = requests.get(url, headers=headers, timeout=5)
+        if r.ok:
+            raw = base64.b64decode(r.json()["content"]).decode("utf-8")
+            return json.loads(raw).get("LINE_USER_ID", "")
+    except Exception:
+        pass
+    return ""
 
 # 猫の定義
 CATS = [
@@ -121,9 +143,9 @@ def send_messages(messages: list[dict], dry_run: bool = False):
         print("❌ LINE_CHANNEL_ACCESS_TOKEN が設定されていません", file=sys.stderr)
         sys.exit(1)
 
-    dest = USER_ID or GROUP_ID
+    dest = USER_ID or _read_user_id_from_github() or GROUP_ID
     if not dest:
-        print("❌ LINE_USER_ID または LINE_GROUP_ID が設定されていません", file=sys.stderr)
+        print("❌ LINE_USER_ID / LINE_GROUP_ID が設定されていません（bot_config.json にも未登録）", file=sys.stderr)
         sys.exit(1)
 
     headers = {
@@ -136,7 +158,7 @@ def send_messages(messages: list[dict], dry_run: bool = False):
     }
     resp = requests.post(LINE_API_URL, headers=headers, json=payload, timeout=30)
     resp.raise_for_status()
-    dest_label = "1対1" if USER_ID else "グループ"
+    dest_label = "1対1" if dest.startswith("U") else "グループ"
     print(f"✅ LINE {dest_label}送信完了 ({len(messages)} 件)")
 
 

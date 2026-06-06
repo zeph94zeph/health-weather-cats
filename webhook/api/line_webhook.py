@@ -41,7 +41,8 @@ GROUP_ID       = os.environ.get("LINE_GROUP_ID", "")
 USER_ID        = os.environ.get("LINE_USER_ID", "")   # 1対1トーク移行後に設定
 GITHUB_TOKEN   = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO    = os.environ.get("GITHUB_REPO", "zeph94zeph/health-weather-cats")
-CSV_FILENAME   = "猫の健康記録.csv"
+CSV_FILENAME        = "猫の健康記録.csv"
+BOT_CONFIG_FILENAME = "bot_config.json"
 
 REPLY_URL = "https://api.line.me/v2/bot/message/reply"
 PUSH_URL  = "https://api.line.me/v2/bot/message/push"
@@ -71,7 +72,8 @@ WEIGHT_RE = re.compile(
 )
 TEXT_TO_CAT = {"りんこ": "rinko", "りん": "rinko", "そうた": "souta", "そう": "souta"}
 SYMPTOM_KW  = ["嘔吐・ゲロ", "嘔吐", "吐き戻し", "ゲロ", "下痢", "血尿", "食欲不振", "元気ない", "咳", "くしゃみ"]
-MENU_KEYWORDS = {"メニュー", "めにゅー", "menu", "きろく", "記録"}
+MENU_KEYWORDS  = {"メニュー", "めにゅー", "menu", "きろく", "記録"}
+SETUP_KEYWORDS = {"myid", "userid", "初期設定", "はじめて", "設定", "セットアップ", "my id", "マイid"}
 
 
 # ── 記録フォーマット ──────────────────────────────────────
@@ -159,6 +161,51 @@ def _github_headers():
     }
 
 
+# ── BOT 設定ファイル (bot_config.json) ────────────────────────
+_BOT_CONFIG: dict | None = None  # cold-start ごとにリセット
+
+
+def _get_bot_config() -> dict:
+    global _BOT_CONFIG
+    if _BOT_CONFIG is None:
+        try:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{BOT_CONFIG_FILENAME}"
+            r = requests.get(url, headers=_github_headers(), timeout=5)
+            _BOT_CONFIG = json.loads(base64.b64decode(r.json()["content"]).decode("utf-8")) if r.ok else {}
+        except Exception:
+            _BOT_CONFIG = {}
+    return _BOT_CONFIG
+
+
+def get_effective_user_id() -> str:
+    """env var → GitHub config の優先順で USER_ID を返す"""
+    return USER_ID or _get_bot_config().get("LINE_USER_ID", "")
+
+
+def _save_bot_config(cfg: dict):
+    """bot_config.json を GitHub に保存しキャッシュも更新する"""
+    global _BOT_CONFIG
+    content = json.dumps(cfg, ensure_ascii=False, indent=2)
+    new_bytes = content.encode("utf-8")
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{BOT_CONFIG_FILENAME}"
+    r = requests.get(url, headers=_github_headers(), timeout=5)
+    payload = {
+        "message": "bot: update config",
+        "content": base64.b64encode(new_bytes).decode(),
+    }
+    if r.ok:
+        payload["sha"] = r.json()["sha"]
+    resp = requests.put(url, headers=_github_headers(), json=payload, timeout=10)
+    # SHA 競合時は1回リトライ
+    if resp.status_code == 409:
+        r2 = requests.get(url, headers=_github_headers(), timeout=5)
+        if r2.ok:
+            payload["sha"] = r2.json()["sha"]
+            resp = requests.put(url, headers=_github_headers(), json=payload, timeout=10)
+    resp.raise_for_status()
+    _BOT_CONFIG = cfg
+
+
 def read_csv_from_github():
     """GitHub から CSV を取得し (rows, fieldnames, sha) を返す"""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{quote(CSV_FILENAME)}"
@@ -221,7 +268,7 @@ def reply(reply_token: str, text: str):
 
 def push_message(text: str):
     """replyToken を使わず USER_ID（または GROUP_ID）に直接 Push 送信する"""
-    dest = USER_ID or GROUP_ID
+    dest = get_effective_user_id() or GROUP_ID
     if not dest or not CHANNEL_TOKEN:
         return
     requests.post(
@@ -333,6 +380,24 @@ def reply_menu_buttons(reply_token: str):
 
 
 # ── イベント処理 ───────────────────────────────────────────
+def handle_follow(event):
+    """友達追加時にウェルカムメッセージ + 初期設定ボタンを送信"""
+    reply_token = event.get("replyToken", "")
+    items = [{"type": "action", "action": {"type": "message", "label": "⚙️ 初期設定", "text": "初期設定"}}]
+    if not reply_token or not CHANNEL_TOKEN:
+        return
+    requests.post(
+        REPLY_URL,
+        headers={"Authorization": f"Bearer {CHANNEL_TOKEN}", "Content-Type": "application/json"},
+        json={"replyToken": reply_token, "messages": [{
+            "type": "text",
+            "text": "🐱 猫健康管理BOTへようこそ！\nまず初期設定をしてください👇",
+            "quickReply": {"items": items},
+        }]},
+        timeout=10,
+    )
+
+
 def handle_postback(event):
     reply_token = event.get("replyToken", "")
     data        = event.get("postback", {}).get("data", "")
@@ -451,10 +516,19 @@ def handle_text(event):
     text        = event.get("message", {}).get("text", "").strip()
     date_str    = datetime.now(JST).strftime("%Y-%m-%d")
 
-    # User ID 確認コマンド（1対1移行セットアップ用）
-    if text.lower() in {"myid", "userid", "マイid", "my id"}:
-        uid = event.get("source", {}).get("userId", "不明")
-        reply(reply_token, f"あなたのUser ID:\n{uid}")
+    # 初期設定コマンド → User ID を bot_config.json に保存
+    if text.lower() in SETUP_KEYWORDS:
+        uid = event.get("source", {}).get("userId", "")
+        if uid:
+            try:
+                cfg = dict(_get_bot_config())
+                cfg["LINE_USER_ID"] = uid
+                _save_bot_config(cfg)
+                reply(reply_token, "✅ 設定完了！\nこのトークで猫の記録・通知を受け取ります🐱")
+            except Exception:
+                reply(reply_token, "⚠️ 設定の保存に失敗しました。\nもう一度「初期設定」と送ってみてください。")
+        else:
+            reply(reply_token, "⚠️ User IDを取得できませんでした。\nもう一度「初期設定」と送ってみてください。")
         return
 
     # メニューキーワード → 記録・閲覧ボタンを返す
@@ -544,15 +618,20 @@ class handler(BaseHTTPRequestHandler):
             # USER_ID が設定されていれば 1対1モード（userId で絞る）
             # そうでなければグループモード（groupId で絞る）
             source = event.get("source", {})
-            if USER_ID:
-                if source.get("userId") != USER_ID:
-                    continue
-            elif GROUP_ID:
-                if source.get("groupId") and source.get("groupId") != GROUP_ID:
-                    continue
+            eff_uid = get_effective_user_id()
+            # follow イベントはフィルタを通過させる（セットアップのため）
+            if event.get("type") != "follow":
+                if eff_uid:
+                    if source.get("userId") != eff_uid:
+                        continue
+                elif GROUP_ID:
+                    if source.get("groupId") and source.get("groupId") != GROUP_ID:
+                        continue
 
             try:
-                if event.get("type") == "postback":
+                if event.get("type") == "follow":
+                    handle_follow(event)
+                elif event.get("type") == "postback":
                     handle_postback(event)
                 elif event.get("type") == "message" and event.get("message", {}).get("type") == "text":
                     handle_text(event)
