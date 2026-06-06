@@ -1,4 +1,4 @@
 {
   "framework": null,
-  "ignoreCommand": "git diff HEAD^ HEAD --name-only | grep -v '^猫の健康記録' | grep -q ."
+  "ignoreCommand": "git diff HEAD^ HEAD --name-only | grep -v '^猫の健康記録' | grep -q . && exit 1 || exit 0"
 }
