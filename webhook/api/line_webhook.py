@@ -38,6 +38,7 @@ JST            = timezone(timedelta(hours=9))
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 CHANNEL_TOKEN  = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 GROUP_ID       = os.environ.get("LINE_GROUP_ID", "")
+USER_ID        = os.environ.get("LINE_USER_ID", "")   # 1対1トーク移行後に設定
 GITHUB_TOKEN   = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO    = os.environ.get("GITHUB_REPO", "zeph94zeph/health-weather-cats")
 CSV_FILENAME   = "猫の健康記録.csv"
@@ -219,13 +220,14 @@ def reply(reply_token: str, text: str):
 
 
 def push_message(text: str):
-    """replyToken を使わず GROUP_ID に直接 Push 送信する（全履歴など重い処理用）"""
-    if not GROUP_ID or not CHANNEL_TOKEN:
+    """replyToken を使わず USER_ID（または GROUP_ID）に直接 Push 送信する"""
+    dest = USER_ID or GROUP_ID
+    if not dest or not CHANNEL_TOKEN:
         return
     requests.post(
         PUSH_URL,
         headers={"Authorization": f"Bearer {CHANNEL_TOKEN}", "Content-Type": "application/json"},
-        json={"to": GROUP_ID, "messages": [{"type": "text", "text": text}]},
+        json={"to": dest, "messages": [{"type": "text", "text": text}]},
         timeout=15,
     )
 
@@ -449,6 +451,12 @@ def handle_text(event):
     text        = event.get("message", {}).get("text", "").strip()
     date_str    = datetime.now(JST).strftime("%Y-%m-%d")
 
+    # User ID 確認コマンド（1対1移行セットアップ用）
+    if text.lower() in {"myid", "userid", "マイid", "my id"}:
+        uid = event.get("source", {}).get("userId", "不明")
+        reply(reply_token, f"あなたのUser ID:\n{uid}")
+        return
+
     # メニューキーワード → 記録・閲覧ボタンを返す
     if text.lower() in MENU_KEYWORDS:
         reply_menu_buttons(reply_token)
@@ -533,10 +541,15 @@ class handler(BaseHTTPRequestHandler):
 
         events = json.loads(body).get("events", [])
         for event in events:
-            # グループIDが設定されていれば対象グループのみ処理
+            # USER_ID が設定されていれば 1対1モード（userId で絞る）
+            # そうでなければグループモード（groupId で絞る）
             source = event.get("source", {})
-            if GROUP_ID and source.get("groupId") and source.get("groupId") != GROUP_ID:
-                continue
+            if USER_ID:
+                if source.get("userId") != USER_ID:
+                    continue
+            elif GROUP_ID:
+                if source.get("groupId") and source.get("groupId") != GROUP_ID:
+                    continue
 
             try:
                 if event.get("type") == "postback":

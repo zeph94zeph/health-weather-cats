@@ -29,6 +29,7 @@ JST          = timezone(timedelta(hours=9))
 
 CHANNEL_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 GROUP_ID      = os.environ.get("LINE_GROUP_ID", "")
+USER_ID       = os.environ.get("LINE_USER_ID", "")   # 1対1トーク移行後に設定（こちらを優先）
 
 # 猫の定義
 CATS = [
@@ -119,8 +120,10 @@ def send_messages(messages: list[dict], dry_run: bool = False):
     if not CHANNEL_TOKEN:
         print("❌ LINE_CHANNEL_ACCESS_TOKEN が設定されていません", file=sys.stderr)
         sys.exit(1)
-    if not GROUP_ID:
-        print("❌ LINE_GROUP_ID が設定されていません", file=sys.stderr)
+
+    dest = USER_ID or GROUP_ID
+    if not dest:
+        print("❌ LINE_USER_ID または LINE_GROUP_ID が設定されていません", file=sys.stderr)
         sys.exit(1)
 
     headers = {
@@ -128,12 +131,13 @@ def send_messages(messages: list[dict], dry_run: bool = False):
         "Authorization": f"Bearer {CHANNEL_TOKEN}",
     }
     payload = {
-        "to": GROUP_ID,
+        "to": dest,
         "messages": messages,
     }
     resp = requests.post(LINE_API_URL, headers=headers, json=payload, timeout=30)
     resp.raise_for_status()
-    print(f"✅ LINE グループ送信完了 ({len(messages)} 件)")
+    dest_label = "1対1" if USER_ID else "グループ"
+    print(f"✅ LINE {dest_label}送信完了 ({len(messages)} 件)")
 
 
 def main():
