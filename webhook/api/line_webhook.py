@@ -70,6 +70,7 @@ WEIGHT_RE = re.compile(
 )
 TEXT_TO_CAT = {"りんこ": "rinko", "りん": "rinko", "そうた": "souta", "そう": "souta"}
 SYMPTOM_KW  = ["嘔吐・ゲロ", "嘔吐", "吐き戻し", "ゲロ", "下痢", "血尿", "食欲不振", "元気ない", "咳", "くしゃみ"]
+MENU_KEYWORDS = {"メニュー", "めにゅー", "menu", "きろく", "記録"}
 
 
 # ── 記録フォーマット ──────────────────────────────────────
@@ -300,6 +301,35 @@ def reply_with_symptom_buttons(reply_token: str, cat_id: str, cat_name: str, dat
     )
 
 
+def reply_menu_buttons(reply_token: str):
+    """「メニュー」キーワードに応答して記録・閲覧ボタンを返す"""
+    today = datetime.now(JST).strftime("%Y-%m-%d")
+    items = [
+        {"type": "action", "action": {"type": "postback", "label": "✅ 2匹とも元気！",
+            "data": f"action=all_ok&date={today}", "displayText": "2匹とも異常なし"}},
+        {"type": "action", "action": {"type": "postback", "label": "🐈‍⬛ りんこの症状",
+            "data": f"action=symptom_start&cat=rinko&date={today}", "displayText": "りんこの症状を記録"}},
+        {"type": "action", "action": {"type": "postback", "label": "🐈 そうたの症状",
+            "data": f"action=symptom_start&cat=souta&date={today}", "displayText": "そうたの症状を記録"}},
+        {"type": "action", "action": {"type": "postback", "label": "🗓 今月の記録",
+            "data": "action=history&month=1", "displayText": "今月の記録を表示"}},
+        {"type": "action", "action": {"type": "postback", "label": "📋 全履歴",
+            "data": "action=history&all=1", "displayText": "全履歴を表示"}},
+    ]
+    if not reply_token or not CHANNEL_TOKEN:
+        return
+    requests.post(
+        REPLY_URL,
+        headers={"Authorization": f"Bearer {CHANNEL_TOKEN}", "Content-Type": "application/json"},
+        json={"replyToken": reply_token, "messages": [{
+            "type": "text",
+            "text": "🐱 何をしますか？",
+            "quickReply": {"items": items},
+        }]},
+        timeout=10,
+    )
+
+
 # ── イベント処理 ───────────────────────────────────────────
 def handle_postback(event):
     reply_token = event.get("replyToken", "")
@@ -418,6 +448,11 @@ def handle_text(event):
     reply_token = event.get("replyToken", "")
     text        = event.get("message", {}).get("text", "").strip()
     date_str    = datetime.now(JST).strftime("%Y-%m-%d")
+
+    # メニューキーワード → 記録・閲覧ボタンを返す
+    if text.lower() in MENU_KEYWORDS:
+        reply_menu_buttons(reply_token)
+        return
 
     rows, fields, sha = read_csv_from_github()
     row = get_or_create_row(rows, date_str)
